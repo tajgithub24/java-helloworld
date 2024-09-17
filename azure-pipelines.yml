@@ -1,0 +1,65 @@
+trigger:
+- main
+
+pool:
+  #vmImage: 'self-hosted-pool'
+  name: 'self-hosted-pool'
+
+steps:
+- task: Maven@4
+  displayName: 'Maven Build'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean package'
+    publishJUnitResults: false
+    javaHomeOption: 'JDKVersion'
+    mavenVersionOption: 'Default'
+    mavenAuthenticateFeed: false
+    effectivePomSkip: false
+    sonarQubeRunAnalysis: false
+    sqMavenPluginVersionChoice: 'latest'
+
+# Copy the generated .war file to the Artifact Staging Directory
+- task: CopyFiles@2
+  displayName: 'Copy war file to Artifact Directory'
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/target'  # Location of the built war file
+    Contents: '**/*.war'  # Copy all .war files
+    TargetFolder: '$(Build.ArtifactStagingDirectory)'
+
+# Publish the .war file as a pipeline artifact
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Artifacts'
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)'  # Publish everything in the staging directory
+    artifact: 'drop'
+
+- task: UniversalPackages@0
+  inputs:
+    command: 'publish'
+    publishDirectory: '$(Build.ArtifactStagingDirectory)'
+    feedsToUsePublish: 'internal'
+    vstsFeedPublish: '0b532529-2f6b-496a-a496-da134a759995/ad591b16-c0f9-4a24-b42c-c09e2dbb5f8f'
+    vstsFeedPackagePublish: 'warfile'
+    versionOption: 'major'
+
+# Build Docker image
+- task: Docker@2
+  displayName: "Docker Build"
+  inputs:
+    command: 'build'
+    #containerRegistry: 'none'  # Do not use a container registry
+    repository: 'javahelloworld'
+    tags: 'v1.0.0'
+    dockerfile: '**/Dockerfile'
+    buildContext: '$(Build.SourcesDirectory)'
+
+# Run Docker container
+- script: |
+    # whoami
+    # docker build -t javahelloworld:v1.0.0 .
+    # container_name="helloworld-container-$(date +%s)"
+    docker stop helloworld-container || true
+    docker rm helloworld-container || true
+    docker run -d --name helloworld-container -p 8081:8080 javahelloworld:v1.0.0
+  displayName: 'Run Docker Container'
